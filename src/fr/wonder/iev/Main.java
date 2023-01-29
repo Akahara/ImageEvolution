@@ -24,6 +24,7 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
+import fr.wonder.commons.math.Mathf;
 import fr.wonder.commons.systems.process.argparser.ArgParser;
 import fr.wonder.commons.systems.process.argparser.EntryPoint;
 import fr.wonder.commons.systems.process.argparser.Option;
@@ -67,10 +68,10 @@ public class Main {
 	private static ShaderProgram shapeShader;
 	
 	private static final float[][] QUAD_VERTICES = {
-			{ -1, -1 },
-			{ +1, -1 },
-			{ +1, +1 },
-			{ -1, +1 },
+			{ -1,-1 },
+			{ +1,-1 },
+			{ +1,+1 },
+			{ -1,+1 },
 	};
 	
 	private static final int BINDING_TARGET_TEXTURE = 0, BINDING_CURRENT_TEXTURE = 1, BINDING_SPRITEMAP_TEXTURE = 2;
@@ -99,8 +100,8 @@ public class Main {
 		IndexBuffer singleQuadIndexBuffer = GLUtils.createQuadIndexBuffer(1);
 		
 		imgFrameBuffer = new FrameBuffer();
-		generatedImage = Texture.standard(imgWidth, imgHeight);
 		imgFrameBuffer.setColorAttachment(0, generatedImage);
+		EvolutionGeneration.setTargetAspectRatio(imgWidth, imgHeight);
 
 		System.out.println("Loading shaders");
 		
@@ -132,14 +133,10 @@ public class Main {
 		System.out.println("Generating VAOs");
 		
 		VertexBufferLayout layout = new VertexBufferLayout()
-				.addFloats(2) // i_vertex
 				.addFloats(2) // i_position
-				.addFloats(4) // i_textureCoords
-				.addFloats(1) // i_scale
-				.addFloats(1) // i_rotation
 				.addFloats(3) // i_color
 				;
-		individualSize = (2+2+4+1+1+3)*4*4;
+		individualSize = (2+3)*4*4;
 		
 		individualsInBuffer = GLUtils.createBuffer(individualSize*EvolutionGeneration.BATCH_SIZE);
 		
@@ -244,7 +241,8 @@ public class Main {
 		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, evalInData);
 		evalVAO.bind();
 		evalShader.bind();
-		
+
+//		spriteTextures[0].bind(BINDING_SPRITEMAP_TEXTURE);
 		glDrawElements(GL_TRIANGLES, 6*EvolutionGeneration.BATCH_SIZE, GL_UNSIGNED_INT, NULL);
 		evalOutData.clear();
 		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -273,22 +271,15 @@ public class Main {
 	}
 	
 	private static void putIndividual(Individual individual, ByteBuffer buffer) {
+		float c = Mathf.cos(individual.transform.rotation);
+		float s = Mathf.sin(individual.transform.rotation);
+		
 		for(float[] vertex : QUAD_VERTICES) {
-			// i_vertex
-			buffer.putFloat(vertex[0]);
-			buffer.putFloat(vertex[1]);
+			float vx = (c*vertex[0]-s*vertex[1])*individual.transform.scale + individual.transform.translation.x;
+			float vy = (s*vertex[0]+c*vertex[1])*individual.transform.scale + individual.transform.translation.y;
 			// i_position
-			buffer.putFloat(individual.transform.translation.x);
-			buffer.putFloat(individual.transform.translation.y);
-			// i_textureCoords
-			buffer.putFloat(0/*spriteVertices[textureIndex][0]*/); // x
-			buffer.putFloat(0/*spriteVertices[textureIndex][1]*/); // y
-			buffer.putFloat(1/*spriteVertices[textureIndex][2]*/); // width
-			buffer.putFloat(1/*spriteVertices[textureIndex][3]*/); // height
-			// i_scale
-			buffer.putFloat(individual.transform.scale);
-			// i_rotation
-			buffer.putFloat(individual.transform.rotation);
+			buffer.putFloat(vx*generatedImage.getHeight()/generatedImage.getWidth());
+			buffer.putFloat(vy);
 			// i_color
 			if(individual.color == null) {
 				buffer.putFloat(0.f);
@@ -403,7 +394,8 @@ public class Main {
 		GLWindow.createWindow("ImageEvolution", options.width, options.height);
 		
 		System.out.println("Loading textures");
-		
+
+		generatedImage = options.resumeFile == null ? Texture.standard(options.width, options.height) : Texture.loadTexture(options.resumeFile);
 		targetTexture = Texture.loadTexture(target);
 		spriteTextures = options.spriteFile == null ? new Texture[] { whiteTexture() } : loadSprites(options.spriteFile);
 		
@@ -412,14 +404,11 @@ public class Main {
 			GLWindow.sendFrame();
 		}
 
-//		glEnable(GL_BLEND);
-//		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		
 		loadGL(options.width, options.height);
 		
 		try {
 			for(int gen = 0; gen < options.generationCount; gen++) {
-				Individual best = runGeneration(gen > 10 ? EvolutionGeneration.STEPS : 10);
+				Individual best = runGeneration((gen>25 || options.resumeFile!=null) ? EvolutionGeneration.STEPS : 2);
 				drawShape(best);
 				
 				if(options.verbose) {
@@ -448,7 +437,7 @@ public class Main {
 	}
 	
 	public static void main(String[] args) throws IOException {
-		args = new String[] { "escher.png", "-w", "200" };
+//		args = new String[] { "escher.png", "-w", "1000", "-n" };
 		ArgParser.runHere(args);
 	}
 	

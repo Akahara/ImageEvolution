@@ -15,13 +15,23 @@ public class EvolutionGeneration {
 	public static final int STEPS = 30;
 	
 	private static final float MIN_SIZE = .01f, MAX_SIZE = .5f;
-	private static final float MIN_X = -1, MIN_Y = -1, MAX_X = 1, MAX_Y = 1;
+	private static float MIN_X = -1, MIN_Y = -1, MAX_X = 1, MAX_Y = 1;
 	private static final float MUTATION_TRANSLATION_MAGNITUDE = (MAX_X-MIN_X)/10f;
 	private static final float MUTATION_SCALE_MAGNITUDE = .05f;
 	private static final float MUTATION_ROTATION_MAGNITUDE = Mathf.PI/10f;
 	
 	private final List<Individual> individuals = new ArrayList<>(BATCH_SIZE);
 	private final int texturesCount;
+	
+	public static void setTargetAspectRatio(int w, int h) {
+		if(w > h) {
+			MIN_X *= (float)w/h;
+			MAX_X *= (float)w/h;
+		} else {
+			MIN_Y *= (float)h/w;
+			MAX_Y *= (float)h/w;
+		}
+	}
 	
 	public EvolutionGeneration(int texturesCount) {
 		this.texturesCount = texturesCount;

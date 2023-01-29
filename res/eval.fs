@@ -21,7 +21,7 @@ layout(std430, binding = 1) buffer outputBuffer
 
 int colorDistance(vec3 c1, vec3 c2) {
 	c1 = abs(c2-c1);
-	return int(PRECISION*dot(c1, vec3(1))); // alpha is not accounted for
+	return int(PRECISION*(c1.r+c1.g+c1.b)); // alpha is not accounted for
 }
 
 void main(void) {
