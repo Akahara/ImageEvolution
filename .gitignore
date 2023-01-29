@@ -1,7 +1,6 @@
 *.class
-
+*.png
 hs_err_pid*
-
 bin/
 .settings/
 .project

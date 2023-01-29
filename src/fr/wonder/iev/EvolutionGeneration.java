@@ -20,29 +20,18 @@ public class EvolutionGeneration {
 	private static final float MUTATION_SCALE_MAGNITUDE = .05f;
 	private static final float MUTATION_ROTATION_MAGNITUDE = Mathf.PI/10f;
 	
-	private final List<Individual> individuals = new ArrayList<>();
+	private final List<Individual> individuals = new ArrayList<>(BATCH_SIZE);
+	private final int texturesCount;
 	
-	public EvolutionGeneration() {}
-	
-//	public Individual getBestIndividual() {
-//		generateInitialPopulation();
-//		for(int s = 1; s < STEPS; s++) {
-//			scoreIndividuals();
-//			rankIndividuals();
-//			keepBestIndividuals();
-//			reproduceIndividuals();
-//			System.out.println("Finished step " + s);
-//		}
-//		scoreIndividuals();
-//		rankIndividuals();
-//		return individuals.get(0);
-//	}
+	public EvolutionGeneration(int texturesCount) {
+		this.texturesCount = texturesCount;
+	}
 	
 	public Individual getFirstIndividual() {
 		return individuals.get(0);
 	}
 	
-	public void generateInitialPopulation(int texturesCount) {
+	public void generateInitialPopulation() {
 		for(int i = 0; i < BATCH_SIZE; i++) {
 			individuals.add(new Individual(Mathr.randRange(0, texturesCount), randomTransform()));
 		}
@@ -51,14 +40,10 @@ public class EvolutionGeneration {
 	private Transform randomTransform() {
 		return new Transform(
 				new Vec2(Mathr.randRange(MIN_X, MAX_X),
-						 Mathr.randRange(MIN_Y, MAX_Y)),                // position (0,0-1,1)
-				Mathr.randRange(MIN_SIZE, MAX_SIZE),  // scale    (0-1)
-				Mathr.randAngle()                     // rotation (0-2pi)
+						 Mathr.randRange(MIN_Y, MAX_Y)), // position (0,0-1,1)
+				Mathr.randRange(MIN_SIZE, MAX_SIZE),     // scale    (0-1)
+				Mathr.randAngle()                        // rotation (0-2pi)
 		);
-	}
-	
-	public void scoreIndividuals() {
-		
 	}
 	
 	public void rankIndividuals() {
@@ -68,8 +53,6 @@ public class EvolutionGeneration {
 	public void keepBestIndividuals() {
 		while(individuals.size() > KEEP_COUNT)
 			individuals.remove(KEEP_COUNT);
-//		for(Individual i : individuals)
-//			System.out.println("Keeping " + i.getScore());
 	}
 	
 	public void reproduceIndividuals() {
@@ -93,7 +76,8 @@ public class EvolutionGeneration {
 				Mathf.clamp(transform.scale * Mathr.randRange(si, sa), MIN_SIZE, MAX_SIZE),
 				transform.rotation + Mathr.randRange(-r, +r)
 		);
-		return new Individual(individual.textureIndex, newTransform);
+		int textureIndex = Mathr.rand() < .05f ? Mathr.randRange(0, texturesCount) : individual.textureIndex;
+		return new Individual(textureIndex, newTransform);
 	}
 
 	public List<Individual> getIndividuals() {

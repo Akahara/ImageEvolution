@@ -18,6 +18,6 @@ mat2 R2D(float theta) {
 void main(void) {
   vec2 pos = i_position + R2D(i_rotation) * i_vertex * i_scale;
   gl_Position = vec4(pos, 0, 1);
-  v_texCoord = i_textureCoords.zw * (i_vertex+1)*.5 + i_textureCoords.xw;
+  v_texCoord = i_textureCoords.zw * (i_vertex+1)*.5 + i_textureCoords.xy;
   v_color = i_color;
 }

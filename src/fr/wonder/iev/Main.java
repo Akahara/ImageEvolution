@@ -1,21 +1,32 @@
 package fr.wonder.iev;
 
-import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL15.*;
+import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.GL_UNSIGNED_INT;
+import static org.lwjgl.opengl.GL11.glDrawElements;
+import static org.lwjgl.opengl.GL15.GL_DYNAMIC_DRAW;
+import static org.lwjgl.opengl.GL15.glBindBuffer;
+import static org.lwjgl.opengl.GL15.glBufferData;
+import static org.lwjgl.opengl.GL15.glBufferSubData;
+import static org.lwjgl.opengl.GL15.glGenBuffers;
+import static org.lwjgl.opengl.GL15.glGetBufferSubData;
 import static org.lwjgl.opengl.GL30.glBindBufferBase;
 import static org.lwjgl.opengl.GL42.glMemoryBarrier;
 import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BARRIER_BIT;
 import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
-import fr.wonder.commons.files.FilesUtils;
+import javax.imageio.ImageIO;
+
+import fr.wonder.commons.systems.process.argparser.ArgParser;
+import fr.wonder.commons.systems.process.argparser.EntryPoint;
+import fr.wonder.commons.systems.process.argparser.Option;
 import fr.wonder.commons.utils.Assertions;
 import fr.wonder.gl.Color;
 import fr.wonder.gl.FrameBuffer;
@@ -31,14 +42,14 @@ import fr.wonder.gl.VertexBufferLayout;
 
 public class Main {
 
-	private static final String imagePath = "image3.jpg";
-	private static final String spritemapPath = "sprites.png";
-	private static final String spritemapInfo = "sprites.txt";
-	private static final int imgWidth = 250, imgHeight = 250;
-	
-	private static Texture targetTexture, spriteMapTexture;
-	private static FrameBuffer imgFrameBuffer;
+	private static Texture targetTexture;
+	private static Texture[] spriteTextures;
 
+	private static Texture generatedImage;
+	private static FrameBuffer imgFrameBuffer;
+	private static ByteBuffer individualsInBuffer;
+	private static int individualSize;
+	
 	private static VertexArray meanVAO;
 	private static VertexBuffer meanVertexBuffer;
 	private static ShaderProgram meanShader;
@@ -55,7 +66,6 @@ public class Main {
 	private static VertexBuffer shapeVertexBuffer;
 	private static ShaderProgram shapeShader;
 	
-	
 	private static final float[][] QUAD_VERTICES = {
 			{ -1, -1 },
 			{ +1, -1 },
@@ -63,18 +73,11 @@ public class Main {
 			{ -1, +1 },
 	};
 	
-	private static float[][] SPRITES_VERTICES;
-	
 	private static final int BINDING_TARGET_TEXTURE = 0, BINDING_CURRENT_TEXTURE = 1, BINDING_SPRITEMAP_TEXTURE = 2;
 	private static final int BINDING_MEAN_OUT = 0, BINDING_EVAL_OUT = 1;
 	
-	private static void loadGL() throws IOException {
+	private static void loadGL(int imgWidth, int imgHeight) throws IOException {
 		System.out.println("Loading GL");
-		
-		System.out.println("Loading textures");
-		
-		targetTexture    = Texture.loadTexture(new File(imagePath));
-		spriteMapTexture = Texture.loadTexture(new File(spritemapPath));
 		
 		System.out.println("Generating buffers");
 		
@@ -95,27 +98,31 @@ public class Main {
 		IndexBuffer batchIndexBuffer      = GLUtils.createQuadIndexBuffer(EvolutionGeneration.BATCH_SIZE);
 		IndexBuffer singleQuadIndexBuffer = GLUtils.createQuadIndexBuffer(1);
 		
-		imgFrameBuffer = new FrameBuffer(imgWidth, imgHeight, false);
+		imgFrameBuffer = new FrameBuffer();
+		generatedImage = Texture.standard(imgWidth, imgHeight);
+		imgFrameBuffer.setColorAttachment(0, generatedImage);
 
 		System.out.println("Loading shaders");
 		
-		meanShader = new ShaderProgram(true,
-				new Shader("/mean.vs", Shader.ShaderType.VERTEX),
-				new Shader("/mean.fs", Shader.ShaderType.FRAGMENT));
+		meanShader = new ShaderProgram(
+				Shader.fromResources("/shape.vs"),
+				Shader.fromResources("/mean.fs"));
 		meanShader.bind();
 		meanShader.setUniform1i("u_targetTexture", BINDING_TARGET_TEXTURE);
 		meanShader.setUniform1i("u_spriteMap", BINDING_SPRITEMAP_TEXTURE);
 		meanShader.setUniform2f("u_resolution", imgWidth, imgHeight);
 		
-		shapeShader = new ShaderProgram(true,
-				new Shader("/shape.vs", Shader.ShaderType.VERTEX),
-				new Shader("/shape.fs", Shader.ShaderType.FRAGMENT));
+		shapeShader = new ShaderProgram(
+				Shader.fromResources("/shape.vs"),
+				Shader.fromResources("/shape.fs"));
 		shapeShader.bind();
 		shapeShader.setUniform1i("u_spriteMap", BINDING_SPRITEMAP_TEXTURE);
+		shapeShader.setUniform1i("u_currentTexture", BINDING_CURRENT_TEXTURE);
+		shapeShader.setUniform2f("u_resolution", imgWidth, imgHeight);
 		
-		evalShader = new ShaderProgram(true,
-				new Shader("/eval.vs", Shader.ShaderType.VERTEX),
-				new Shader("/eval.fs", Shader.ShaderType.FRAGMENT));
+		evalShader = new ShaderProgram(
+				Shader.fromResources("/shape.vs"),
+				Shader.fromResources("/eval.fs"));
 		evalShader.bind();
 		evalShader.setUniform1i("u_targetTexture", BINDING_TARGET_TEXTURE);
 		evalShader.setUniform1i("u_currentTexture", BINDING_CURRENT_TEXTURE);
@@ -124,133 +131,76 @@ public class Main {
 		
 		System.out.println("Generating VAOs");
 		
-		VertexBufferLayout meanBufferLayout = new VertexBufferLayout()
+		VertexBufferLayout layout = new VertexBufferLayout()
 				.addFloats(2) // i_vertex
 				.addFloats(2) // i_position
 				.addFloats(4) // i_textureCoords
 				.addFloats(1) // i_scale
 				.addFloats(1) // i_rotation
+				.addFloats(3) // i_color
 				;
+		individualSize = (2+2+4+1+1+3)*4*4;
+		
+		individualsInBuffer = GLUtils.createBuffer(individualSize*EvolutionGeneration.BATCH_SIZE);
+		
 		meanVertexBuffer = VertexBuffer.emptyBuffer();
 		meanVertexBuffer.bind();
-		meanVertexBuffer.setData(GLUtils.createBuffer((2+2+4+1+1)*4*4*EvolutionGeneration.BATCH_SIZE));
+		meanVertexBuffer.setData(individualsInBuffer);
 		meanVAO = new VertexArray();
 		meanVAO.setIndices(batchIndexBuffer);
-		meanVAO.setBuffer(meanVertexBuffer, meanBufferLayout);
+		meanVAO.setBuffer(meanVertexBuffer, layout);
 		VertexArray.unbind();
 		
-		VertexBufferLayout shapeBufferLayout = new VertexBufferLayout()
-				.addFloats(2) // i_vertex
-				.addFloats(2) // i_position
-				.addFloats(4) // i_textureCoords
-				.addFloats(1) // i_scale
-				.addFloats(1) // i_rotation
-				.addFloats(3) // i_color
-				;
 		shapeVertexBuffer = VertexBuffer.emptyBuffer();
 		shapeVertexBuffer.bind();
-		shapeVertexBuffer.setData(GLUtils.createBuffer((2+2+4+1+1+(3+1))*4*4));
+		shapeVertexBuffer.setData(GLUtils.createBuffer(individualSize));
 		shapeVAO = new VertexArray();
 		shapeVAO.setIndices(singleQuadIndexBuffer);
-		shapeVAO.setBuffer(shapeVertexBuffer, shapeBufferLayout);
+		shapeVAO.setBuffer(shapeVertexBuffer, layout);
 		VertexArray.unbind();
 		
-		VertexBufferLayout evalBufferLayout = new VertexBufferLayout()
-				.addFloats(2) // i_vertex
-				.addFloats(2) // i_position
-				.addFloats(4) // i_textureCoords
-				.addFloats(1) // i_scale
-				.addFloats(1) // i_rotation
-				.addFloats(3) // i_color
-				;
 		evalVertexBuffer = VertexBuffer.emptyBuffer();
 		evalVertexBuffer.bind();
-		evalVertexBuffer.setData(GLUtils.createBuffer((2+2+4+1+1+(3+1))*4*4*EvolutionGeneration.BATCH_SIZE));
+		evalVertexBuffer.setData(individualsInBuffer);
 		evalVAO = new VertexArray();
 		evalVAO.setIndices(batchIndexBuffer);
-		evalVAO.setBuffer(evalVertexBuffer, evalBufferLayout);
+		evalVAO.setBuffer(evalVertexBuffer, layout);
 		VertexArray.unbind();
 		
 		System.out.println("Binding buffers");
 
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_MEAN_OUT, meanOutBuffer);
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_EVAL_OUT, evalOutBuffer);
-		imgFrameBuffer.bindTexture(BINDING_CURRENT_TEXTURE);
+		generatedImage.bind(BINDING_CURRENT_TEXTURE);
 		targetTexture.bind(BINDING_TARGET_TEXTURE);
-		spriteMapTexture.bind(BINDING_SPRITEMAP_TEXTURE);
-	}
-	
-	private static void loadSpritemapVertices() throws IOException {
-		List<float[]> vertices = new ArrayList<>();
-		
-		String info = FilesUtils.read(new File(spritemapInfo));
-		
-		try {
-			for(String imageVertices : info.split(";")) {
-				String[] parts = imageVertices.split(":");
-				vertices.add(new float[] {
-						Float.parseFloat(parts[0]),
-						Float.parseFloat(parts[1]),
-						Float.parseFloat(parts[2]),
-						Float.parseFloat(parts[3]),
-				});
-			}
-		} catch (NumberFormatException e) {
-			throw new IOException("Invalid sprite info format");
+		for(int i = 0; i < spriteTextures.length; i++) {
+			spriteTextures[i].bind(BINDING_SPRITEMAP_TEXTURE + i);
 		}
 		
-		SPRITES_VERTICES = vertices.toArray(float[][]::new);
+		imgFrameBuffer.bind();
 	}
 	
-	private static ByteBuffer createIndividualsIndexBuffer(List<Individual> individuals, boolean includeColor) {
+	private static ByteBuffer createIndividualsVBO(List<Individual> individuals) {
 		Assertions.assertTrue(individuals.size() == EvolutionGeneration.BATCH_SIZE);
 		
-		int vertexSize = 2+2+4+1+1;
-		if(includeColor) vertexSize += 3;
-		ByteBuffer vertexData = GLUtils.createBuffer(vertexSize * 4 * 4 * EvolutionGeneration.BATCH_SIZE);
-		
+		individualsInBuffer.position(0);
 		for(int i = 0; i < EvolutionGeneration.BATCH_SIZE; i++) {
 			Individual individual = individuals.get(i);
-			Color color = individual.getColor();
-			float[] textureVertices = SPRITES_VERTICES[individual.textureIndex];
-			for(float[] vertex : QUAD_VERTICES) {
-				// i_vertex
-				vertexData.putFloat(vertex[0]);
-				vertexData.putFloat(vertex[1]);
-				// i_position
-				vertexData.putFloat(individual.transform.translation.x);
-				vertexData.putFloat(individual.transform.translation.y);
-				// i_textureCoords
-				vertexData.putFloat(textureVertices[0]); // x
-				vertexData.putFloat(textureVertices[1]); // y
-				vertexData.putFloat(textureVertices[2]); // width
-				vertexData.putFloat(textureVertices[3]); // height
-				// i_scale
-				vertexData.putFloat(individual.transform.scale);
-				// i_rotation
-				vertexData.putFloat(individual.transform.rotation);
-				if(!includeColor)
-					continue;
-				// i_color
-				vertexData.putFloat(color.r);
-				vertexData.putFloat(color.g);
-				vertexData.putFloat(color.b);
-			}
+			putIndividual(individual, individualsInBuffer);
 		}
-		vertexData.position(0);
+		individualsInBuffer.position(0);
 		
-		return vertexData;
+		return individualsInBuffer;
 	}
 	
 	private static Color[] dispatchMeanCompute(List<Individual> individuals) {
-		ByteBuffer meanInData = createIndividualsIndexBuffer(individuals, false);
+		ByteBuffer meanInData = createIndividualsVBO(individuals);
 		Color[] colors = new Color[EvolutionGeneration.BATCH_SIZE];
 		
-		glBindBuffer   (GL_SHADER_STORAGE_BUFFER, meanOutBuffer);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, meanOutBuffer);
 		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, meanOutEmptyData);
-		glBindBuffer   (GL_SHADER_STORAGE_BUFFER, meanVertexBuffer.getBufferId());
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, meanVertexBuffer.getBufferId());
 		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, meanInData);
-		imgFrameBuffer.bind();
 		meanVAO.bind();
 		meanShader.bind();
 		
@@ -258,7 +208,7 @@ public class Main {
 		meanOutData.clear();
 		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		
-		glBindBuffer      (GL_SHADER_STORAGE_BUFFER, meanOutBuffer);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, meanOutBuffer);
 		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, meanOutData);
 		
 		for(int i = 0; i < EvolutionGeneration.BATCH_SIZE; i++) {
@@ -267,6 +217,7 @@ public class Main {
 			int green = meanOutData.getInt();
 			int blue = meanOutData.getInt();
 			float px = pixels;
+			if(px == 0) px = 1;
 			colors[i] = new Color(red/px, green/px, blue/px);
 //			System.out.println(
 //					"Shape " + i +
@@ -284,14 +235,13 @@ public class Main {
 	private static int[] dispatchEvalCompute(List<Individual> individuals) {
 		Assertions.assertTrue(individuals.size() == EvolutionGeneration.BATCH_SIZE);
 		
-		ByteBuffer evalInData = createIndividualsIndexBuffer(individuals, true);
+		ByteBuffer evalInData = createIndividualsVBO(individuals);
 		int[] scores = new int[EvolutionGeneration.BATCH_SIZE];
 		
 		glBindBuffer   (GL_SHADER_STORAGE_BUFFER, evalOutBuffer);
 		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, evalOutEmptyData);
 		glBindBuffer   (GL_SHADER_STORAGE_BUFFER, evalVertexBuffer.getBufferId());
 		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, evalInData);
-		imgFrameBuffer.bind();
 		evalVAO.bind();
 		evalShader.bind();
 		
@@ -299,102 +249,207 @@ public class Main {
 		evalOutData.clear();
 		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		
-		glBindBuffer      (GL_SHADER_STORAGE_BUFFER, evalOutBuffer);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, evalOutBuffer);
 		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, evalOutData);
 		
 		for(int i = 0; i < EvolutionGeneration.BATCH_SIZE; i++) {
 			int score = evalOutData.getInt();
 			scores[i] = score;
-//			System.out.println(
-//					"Shape " + i +
-//					"\n  score     =" + score
-//			);
 		}
 		
 		return scores;
 	}
 	
 	private static void drawShape(Individual individual) {
-		drawShape(individual.textureIndex, individual.transform, individual.getColor());
-	}
-	
-	private static void drawShape(int textureIndex, Transform transform, Color color) {
-		int shapeInSize = (2+2+4+1+1+(3+1))*4*4;
-		ByteBuffer shapeInData = ByteBuffer.allocateDirect(shapeInSize);
-		shapeInData.order(ByteOrder.LITTLE_ENDIAN);
-		for(float[] vertex : QUAD_VERTICES) {
-			// i_vertex
-			shapeInData.putFloat(vertex[0]);
-			shapeInData.putFloat(vertex[1]);
-			// i_position
-			shapeInData.putFloat(transform.translation.x);
-			shapeInData.putFloat(transform.translation.y);
-			// i_textureCoords
-			shapeInData.putFloat(SPRITES_VERTICES[textureIndex][0]); // x
-			shapeInData.putFloat(SPRITES_VERTICES[textureIndex][1]); // y
-			shapeInData.putFloat(SPRITES_VERTICES[textureIndex][2]); // width
-			shapeInData.putFloat(SPRITES_VERTICES[textureIndex][3]); // height
-			// i_scale
-			shapeInData.putFloat(transform.scale);
-			// i_rotation
-			shapeInData.putFloat(transform.rotation);
-			// i_color
-			shapeInData.putFloat(color.r);
-			shapeInData.putFloat(color.g);
-			shapeInData.putFloat(color.b);
-//			shapeInData.position(shapeInData.position()+4); // padding
-		}
-		shapeInData.position(0);
+		individualsInBuffer.position(individualsInBuffer.capacity() - individualSize); // use only the last <individualSize> bytes
+		putIndividual(individual, individualsInBuffer);
+		individualsInBuffer.position(individualsInBuffer.capacity() - individualSize);
 		
-		glBindBuffer   (GL_SHADER_STORAGE_BUFFER, shapeVertexBuffer.getBufferId());
-		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, shapeInData);
-		imgFrameBuffer.bind();
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, shapeVertexBuffer.getBufferId());
+		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, individualsInBuffer);
 		shapeVAO.bind();
 		shapeShader.bind();
-		
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, NULL);
 	}
 	
-	public static void main(String[] args) throws IOException {
-		GLWindow.createWindow(700, 700);
-		GLWindow.sendFrame();
+	private static void putIndividual(Individual individual, ByteBuffer buffer) {
+		for(float[] vertex : QUAD_VERTICES) {
+			// i_vertex
+			buffer.putFloat(vertex[0]);
+			buffer.putFloat(vertex[1]);
+			// i_position
+			buffer.putFloat(individual.transform.translation.x);
+			buffer.putFloat(individual.transform.translation.y);
+			// i_textureCoords
+			buffer.putFloat(0/*spriteVertices[textureIndex][0]*/); // x
+			buffer.putFloat(0/*spriteVertices[textureIndex][1]*/); // y
+			buffer.putFloat(1/*spriteVertices[textureIndex][2]*/); // width
+			buffer.putFloat(1/*spriteVertices[textureIndex][3]*/); // height
+			// i_scale
+			buffer.putFloat(individual.transform.scale);
+			// i_rotation
+			buffer.putFloat(individual.transform.rotation);
+			// i_color
+			if(individual.color == null) {
+				buffer.putFloat(0.f);
+				buffer.putFloat(0.f);
+				buffer.putFloat(0.f);
+			} else {
+				buffer.putFloat(individual.color.r);
+				buffer.putFloat(individual.color.g);
+				buffer.putFloat(individual.color.b);
+			}
+		}
+	}
+	
+	private static Texture whiteTexture() {
+		return Texture.fromBuffer(1, 1,
+				GLUtils.createBuffer(4*4)
+				.putFloat(1)
+				.putFloat(1)
+				.putFloat(1)
+				.putFloat(1)
+				.position(0));
+	}
+	
+	private static Texture[] loadSprites(File spriteFile) throws IOException {
+		if(!spriteFile.exists())
+			throw new IOException("No sprite file '" + spriteFile + "'");
+		if(spriteFile.isFile())
+			return new Texture[] { Texture.loadTexture(spriteFile) };
+		List<Texture> sprites = new ArrayList<>();
+		for(File f : spriteFile.listFiles()) {
+			if(!f.getName().startsWith(".") && !f.getName().startsWith("_"))
+				sprites.add(Texture.loadTexture(f));
+		}
+		return sprites.toArray(Texture[]::new);
+	}
+	
+	private static Individual runGeneration(int steps) {
+		EvolutionGeneration generation = new EvolutionGeneration(spriteTextures.length);
+		generation.generateInitialPopulation();
+		for(int step = 0; step < steps; step++) {
+			List<Individual> individuals = generation.getIndividuals();
+			Color[] colors = dispatchMeanCompute(individuals);
+			for(int i = 0; i < individuals.size(); i++)
+				individuals.get(i).color = colors[i];
+			int[] scores = dispatchEvalCompute(individuals);
+			for(int i = 0; i < individuals.size(); i++)
+				individuals.get(i).score = scores[i];
+			generation.rankIndividuals();
+			generation.keepBestIndividuals();
+			generation.reproduceIndividuals();
+		}
+		return generation.getFirstIndividual();
+	}
+	
+	private static void exportFrame(File outputFile) {
+		System.out.println("Exporting frame " + outputFile);
+		try {
+			generatedImage.writeToFile(outputFile);
+		} catch (IOException e) {
+			System.err.println("Could not write frame: " + e);
+		}
+	}
+	
+	public static class Options {
 		
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		@Option(name = "--resume", shortand = "-r")
+		public File resumeFile = null;
+		@Option(name = "--no-display", shortand = "-n")
+		public boolean withDisplay = true;
+		@Option(name = "--export-every", shortand = "-d")
+		public int exportEveryNObjects = 500;
+		@Option(name = "--export-format", shortand = "-e")
+		public String exportFormat = "out_{}.png";
+		@Option(name = "--width", shortand = "-w")
+		public int width = -1;
+		@Option(name = "--height", shortand = "-h")
+		public int height = -1;
+		@Option(name = "--sprite", shortand = "-s")
+		public File spriteFile = null;
+		@Option(name = "--verbose", shortand = "-v")
+		public boolean verbose;
+		@Option(name = "--generations", shortand = "-g")
+		public int generationCount = Integer.MAX_VALUE;
+		@Option(name = "--output", shortand = "-o")
+		public File outputFile = new File("out.png");
+	}
+	
+	private static void checkOptions(Options options, File target) throws IOException {
+		BufferedImage img = ImageIO.read(target);
+		if(options.width == -1 && options.height == -1) {
+			options.width = img.getWidth();
+			options.height = img.getHeight();
+		} else if(options.width == -1) {
+			options.width = img.getWidth() * options.height / img.getHeight();
+		} else if(options.height == -1) {
+			options.height = img.getHeight() * options.width / img.getWidth();
+		}
 		
-		loadGL();
-		loadSpritemapVertices();
+		if(!options.exportFormat.contains("{}"))
+			throw new IOException("Invalid export format, include '{}' in the file name");
+		
+		if(options.width <= 0 || options.height <= 0)
+			throw new IOException("Invalid image size: " + options.width + "x" + options.height);
+		
+		System.out.println(String.format("In %dx%d  Out %dx%d", img.getWidth(), img.getHeight(), options.width, options.height));
+	}
+	
+	@EntryPoint(path = ":root")
+	public static void run(Options options, File target) throws IOException {
+		checkOptions(options, target);
+		
+		GLWindow.createWindow("ImageEvolution", options.width, options.height);
+		
+		System.out.println("Loading textures");
+		
+		targetTexture = Texture.loadTexture(target);
+		spriteTextures = options.spriteFile == null ? new Texture[] { whiteTexture() } : loadSprites(options.spriteFile);
+		
+		if(options.withDisplay) {
+			GLWindow.show();
+			GLWindow.sendFrame();
+		}
+
+//		glEnable(GL_BLEND);
+//		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		
+		loadGL(options.width, options.height);
 		
 		try {
-			for(int gen = 0; ; gen++) {
-				System.out.println("Running generation " + gen);
-				EvolutionGeneration generation = new EvolutionGeneration();
-				generation.generateInitialPopulation(SPRITES_VERTICES.length);
-				for(int step = 0; step < EvolutionGeneration.STEPS; step++) {
-//					System.out.println("Running step " + step);
-					List<Individual> individuals = generation.getIndividuals();
-					Color[] colors = dispatchMeanCompute(individuals);
-					for(int i = 0; i < individuals.size(); i++)
-						individuals.get(i).setColor(colors[i]);
-					int[] scores = dispatchEvalCompute(individuals);
-					for(int i = 0; i < individuals.size(); i++)
-						individuals.get(i).setScore(scores[i]);
-					generation.rankIndividuals();
-					generation.keepBestIndividuals();
-					generation.reproduceIndividuals();
-				}
-				System.out.println(generation.getFirstIndividual());
-				drawShape(generation.getFirstIndividual());
+			for(int gen = 0; gen < options.generationCount; gen++) {
+				Individual best = runGeneration(gen > 10 ? EvolutionGeneration.STEPS : 10);
+				drawShape(best);
 				
-				FrameBuffer.blitMSAAToMainBuffer(imgFrameBuffer, GLWindow.getWinWidth(), GLWindow.getWinHeight());
-				GLWindow.sendFrame();
+				if(options.verbose) {
+					System.out.println("Ran generation " + gen);
+					System.out.println(best);
+				} else if(gen % 100 == 0) {
+					System.out.println("Ran generation " + gen);
+				}
+				
+				if(options.withDisplay) {
+					imgFrameBuffer.blitMSAAToMainBuffer();
+					GLWindow.sendFrame();
+				}
+				
+				if(options.exportEveryNObjects > 0 && gen > 10 && gen % options.exportEveryNObjects == 0)
+					exportFrame(new File(options.exportFormat.replaceFirst("\\{\\}", ""+gen)));
 				
 				if(GLWindow.shouldDispose() || System.in.available() > 0)
 					break;
 			}
+			
 		} finally {
+			exportFrame(options.outputFile);
 			GLWindow.dispose();
 		}
+	}
+	
+	public static void main(String[] args) throws IOException {
+		args = new String[] { "escher.png", "-w", "200" };
+		ArgParser.runHere(args);
 	}
 	
 }

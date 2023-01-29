@@ -6,34 +6,21 @@ public class Individual {
 	
 	public final int textureIndex;
 	public final Transform transform;
-	
-	private int score;
-	private Color color;
+	public Color color;
+	public int score;
 	
 	public Individual(int textureIndex, Transform transform) {
 		this.textureIndex = textureIndex;
 		this.transform = transform;
 	}
 	
-	public float getScore() {
+	public int getScore() {
 		return score;
-	}
-	
-	public void setScore(int score) {
-		this.score = score;
-	}
-	
-	public Color getColor() {
-		return color;
-	}
-	
-	public void setColor(Color color) {
-		this.color = color;
 	}
 	
 	@Override
 	public String toString() {
-		return String.format("new Individual(%d, new Transform(new Vec2(%f, %f), %f, %f))  new Color(%f, %f, %f, %f)",
+		return String.format("[tex=%d pos=(%+.6f, %+.6f) size=%.6f rot=%+.6f color=(%.3f, %.3f, %.3f)]",
 				textureIndex,
 				transform.translation.x,
 				transform.translation.x,
@@ -41,8 +28,7 @@ public class Individual {
 				transform.rotation,
 				color.r,
 				color.g,
-				color.b,
-				color.a);
+				color.b);
 	}
 	
 }

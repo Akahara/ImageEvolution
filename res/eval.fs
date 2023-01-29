@@ -27,9 +27,9 @@ int colorDistance(vec3 c1, vec3 c2) {
 void main(void) {
 	vec3 currentColor = texture(u_currentTexture, gl_FragCoord.xy/u_resolution).rgb;
 	vec3 targetColor = texture(u_targetTexture, gl_FragCoord.xy/u_resolution).rgb;
-	vec3 replacementColor = texture(u_spriteMap, v_texCoord).rgb;
+	vec4 replacementColor = texture(u_spriteMap, v_texCoord);
 	float bw = (replacementColor.r + replacementColor.g + replacementColor.b)/3.;
-	vec3 newColor = bw*v_color;
+	vec3 newColor = bw * v_color * replacementColor.a + (1-replacementColor.a) * currentColor.rgb;
 	int improvement = colorDistance(targetColor, currentColor) - colorDistance(targetColor, newColor);
 	atomicAdd(outputArray[gl_PrimitiveID/2].totalProgress, improvement);
 	discard;
