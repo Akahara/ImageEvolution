@@ -1,5 +1,7 @@
 *.class
 *.png
+*.jpg
+!/_git/*
 hs_err_pid*
 bin/
 .settings/
