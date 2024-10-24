@@ -22,8 +22,8 @@ public class Individual {
 	public String toString() {
 		return String.format("[tex=%d pos=(%+.6f, %+.6f) size=%.6f rot=%+.6f color=(%.3f, %.3f, %.3f)]",
 				textureIndex,
-				transform.translation.x,
-				transform.translation.x,
+				transform.translationX,
+				transform.translationY,
 				transform.scale,
 				transform.rotation,
 				color.r,

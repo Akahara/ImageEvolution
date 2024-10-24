@@ -4,10 +4,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-import fr.wonder.commons.math.Mathf;
-import fr.wonder.commons.math.Mathr;
-import fr.wonder.commons.math.vectors.Vec2;
-
 public class EvolutionGeneration {
 
 	public static final int BATCH_SIZE = 200; // 200
@@ -18,7 +14,7 @@ public class EvolutionGeneration {
 	private static float MIN_X = -1, MIN_Y = -1, MAX_X = 1, MAX_Y = 1;
 	private static final float MUTATION_TRANSLATION_MAGNITUDE = (MAX_X-MIN_X)/10f;
 	private static final float MUTATION_SCALE_MAGNITUDE = .05f;
-	private static final float MUTATION_ROTATION_MAGNITUDE = Mathf.PI/10f;
+	private static final float MUTATION_ROTATION_MAGNITUDE = Mathr.PI/10f;
 	
 	private final List<Individual> individuals = new ArrayList<>(BATCH_SIZE);
 	private final int texturesCount;
@@ -49,8 +45,8 @@ public class EvolutionGeneration {
 	
 	private Transform randomTransform() {
 		return new Transform(
-				new Vec2(Mathr.randRange(MIN_X, MAX_X),
-						 Mathr.randRange(MIN_Y, MAX_Y)), // position (0,0-1,1)
+				Mathr.randRange(MIN_X, MAX_X),           // position (0,0-1,1)
+				Mathr.randRange(MIN_Y, MAX_Y),
 				Mathr.randRange(MIN_SIZE, MAX_SIZE),     // scale    (0-1)
 				Mathr.randAngle()                        // rotation (0-2pi)
 		);
@@ -80,10 +76,9 @@ public class EvolutionGeneration {
 		final float sa = 1+MUTATION_SCALE_MAGNITUDE/2f;
 		final float r = MUTATION_ROTATION_MAGNITUDE/2f;
 		Transform newTransform = new Transform(
-				new Vec2(
-						Mathf.clamp(transform.translation.x + Mathr.randRange(-d, +d), MIN_X, MAX_X),
-						Mathf.clamp(transform.translation.y + Mathr.randRange(-d, +d), MIN_Y, MAX_Y)),
-				Mathf.clamp(transform.scale * Mathr.randRange(si, sa), MIN_SIZE, MAX_SIZE),
+				Mathr.clamp(transform.translationX + Mathr.randRange(-d, +d), MIN_X, MAX_X),
+				Mathr.clamp(transform.translationY + Mathr.randRange(-d, +d), MIN_Y, MAX_Y),
+				Mathr.clamp(transform.scale * Mathr.randRange(si, sa), MIN_SIZE, MAX_SIZE),
 				transform.rotation + Mathr.randRange(-r, +r)
 		);
 		int textureIndex = Mathr.rand() < .05f ? Mathr.randRange(0, texturesCount) : individual.textureIndex;

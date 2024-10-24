@@ -24,23 +24,12 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
-import fr.wonder.commons.math.Mathf;
-import fr.wonder.commons.systems.process.argparser.ArgParser;
-import fr.wonder.commons.systems.process.argparser.Argument;
-import fr.wonder.commons.systems.process.argparser.EntryPoint;
-import fr.wonder.commons.systems.process.argparser.Option;
-import fr.wonder.commons.utils.Assertions;
-import fr.wonder.gl.Color;
-import fr.wonder.gl.FrameBuffer;
-import fr.wonder.gl.GLUtils;
-import fr.wonder.gl.GLWindow;
-import fr.wonder.gl.IndexBuffer;
-import fr.wonder.gl.Shader;
-import fr.wonder.gl.ShaderProgram;
-import fr.wonder.gl.Texture;
-import fr.wonder.gl.VertexArray;
-import fr.wonder.gl.VertexBuffer;
-import fr.wonder.gl.VertexBufferLayout;
+import fr.wonder.argparser.ArgParser;
+import fr.wonder.argparser.annotations.Argument;
+import fr.wonder.argparser.annotations.EntryPoint;
+import fr.wonder.argparser.annotations.Option;
+import fr.wonder.argparser.annotations.OptionClass;
+import fr.wonder.gl.*;
 
 public class Main {
 
@@ -179,7 +168,8 @@ public class Main {
 	}
 	
 	private static ByteBuffer createIndividualsVBO(List<Individual> individuals) {
-		Assertions.assertTrue(individuals.size() == EvolutionGeneration.BATCH_SIZE);
+		if (individuals.size() != EvolutionGeneration.BATCH_SIZE)
+			throw new RuntimeException("Invalid batch size");
 		
 		individualsInBuffer.position(0);
 		for(int i = 0; i < EvolutionGeneration.BATCH_SIZE; i++) {
@@ -231,7 +221,8 @@ public class Main {
 	}
 	
 	private static int[] dispatchEvalCompute(List<Individual> individuals) {
-		Assertions.assertTrue(individuals.size() == EvolutionGeneration.BATCH_SIZE);
+		if (individuals.size() != EvolutionGeneration.BATCH_SIZE)
+			throw new RuntimeException("Invalid batch size");
 		
 		ByteBuffer evalInData = createIndividualsVBO(individuals);
 		int[] scores = new int[EvolutionGeneration.BATCH_SIZE];
@@ -272,12 +263,12 @@ public class Main {
 	}
 	
 	private static void putIndividual(Individual individual, ByteBuffer buffer) {
-		float c = Mathf.cos(individual.transform.rotation);
-		float s = Mathf.sin(individual.transform.rotation);
+		float c = Mathr.cos(individual.transform.rotation);
+		float s = Mathr.sin(individual.transform.rotation);
 		
 		for(float[] vertex : QUAD_VERTICES) {
-			float vx = (c*vertex[0]-s*vertex[1])*individual.transform.scale + individual.transform.translation.x;
-			float vy = (s*vertex[0]+c*vertex[1])*individual.transform.scale + individual.transform.translation.y;
+			float vx = (c*vertex[0]-s*vertex[1])*individual.transform.scale + individual.transform.translationX;
+			float vy = (s*vertex[0]+c*vertex[1])*individual.transform.scale + individual.transform.translationY;
 			// i_position
 			buffer.putFloat(vx*generatedImage.getHeight()/generatedImage.getWidth());
 			buffer.putFloat(vy);
@@ -343,28 +334,29 @@ public class Main {
 			System.err.println("Could not write frame: " + e);
 		}
 	}
-	
+
+	@OptionClass
 	public static class Options {
 		
 		@Option(name = "--resume", desc = "image to start from")
 		public File resumeFile = null;
-		@Option(name = "--no-display", shortand = "-n", desc = "hide the window")
+		@Option(name = "--no-display", shorthand = "-n", desc = "hide the window")
 		public boolean withDisplay = true;
-		@Option(name = "--export-every", shortand = "-d", desc = "export every other N intermediate images")
+		@Option(name = "--export-every", shorthand = "-d", desc = "export every other N intermediate images")
 		public int exportEveryNObjects = 500;
-		@Option(name = "--export-format", shortand = "-e", desc = "intermediate images name, use {} to specify the generation (out_{}.png by default)")
+		@Option(name = "--export-format", shorthand = "-e", desc = "intermediate images name, use {} to specify the generation (out_{}.png by default)")
 		public String exportFormat = "out_{}.png";
-		@Option(name = "--width", shortand = "-w", desc = "generated image width")
+		@Option(name = "--width", shorthand = "-w", desc = "generated image width")
 		public int width = -1;
-		@Option(name = "--height", shortand = "-h", desc = "generated image height")
+		@Option(name = "--height", shorthand = "-h", desc = "generated image height")
 		public int height = -1;
 		@Option(name = "--sprite", desc = "sprite(s) to use, a white square by default") // TODO fully implement sprites
 		public File spriteFile = null;
-		@Option(name = "--verbose", shortand = "-v", desc = "verbose output")
+		@Option(name = "--verbose", shorthand = "-v", desc = "verbose output")
 		public boolean verbose;
-		@Option(name = "--generations", shortand = "-g", desc = "stop after N frames")
+		@Option(name = "--generations", shorthand = "-g", desc = "stop after N frames")
 		public int generationCount = Integer.MAX_VALUE;
-		@Option(name = "--output", shortand = "-o", desc = "output file path (out.png by default)")
+		@Option(name = "--output", shorthand = "-o", desc = "output file path (out.png by default)")
 		public File outputFile = new File("out.png");
 	}
 	
@@ -385,7 +377,7 @@ public class Main {
 		if(options.width <= 0 || options.height <= 0)
 			throw new IOException("Invalid image size: " + options.width + "x" + options.height);
 		
-		System.out.println(String.format("In %dx%d  Out %dx%d", img.getWidth(), img.getHeight(), options.width, options.height));
+		System.out.printf("In %dx%d  Out %dx%d%n", img.getWidth(), img.getHeight(), options.width, options.height);
 	}
 	
 	@EntryPoint(path = ":root")
@@ -413,13 +405,8 @@ public class Main {
 				Individual best = runGeneration((gen>25 || options.resumeFile!=null) ? EvolutionGeneration.STEPS : 2);
 				drawShape(best);
 				
-				if(options.verbose) {
-					System.out.println("Ran generation " + gen);
-					System.out.println(best);
-				} else if(gen % 100 == 0) {
-					System.out.println("Ran generation " + gen);
-				}
-				
+				System.out.println("Ran generation " + gen + "\r");
+
 				if(options.withDisplay) {
 					imgFrameBuffer.blitMSAAToMainBuffer();
 					GLWindow.sendFrame();
